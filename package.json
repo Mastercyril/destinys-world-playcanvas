@@ -1,0 +1,20 @@
+{
+  "name": "destinys-world-playcanvas",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Destiny's World: Lost Society in Time — a browser vertical slice of Act I, Empty Boulevard.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host --port 4173"
+  },
+  "dependencies": {
+    "three": "0.170.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.170.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.11"
+  }
+}
