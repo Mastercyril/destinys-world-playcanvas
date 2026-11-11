@@ -2,6 +2,8 @@ import { Clock, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
 import { loadAssets } from './assets';
 import { GameAudio } from './audio';
 import { AncientOne } from './alien';
+import { Bystanders } from './npcs';
+import { loadCast } from './rigs';
 import { BuildSystem, type Placement } from './build';
 import { clockTexture, docketTexture, evacuationPoster, precinctSign, roadStencil, woodTexture } from './canvases';
 import { City, type Hotspot } from './city';
@@ -41,6 +43,8 @@ export interface DebugApi {
   closeJournal: () => void;
   step: (dt: number) => void;
   slide: (vx: number, vz: number) => { x: number; y: number; z: number };
+  handPoint: () => { x: number; y: number; z: number } | null;
+  setArms: (x: number, y: number, z: number) => void;
   blocked: (x: number, y: number, z: number) => boolean;
 }
 
@@ -64,6 +68,7 @@ export class Game {
   private city!: City;
   private player!: Player;
   private alien!: AncientOne;
+  private people!: Bystanders;
   private build!: BuildSystem;
   private rain!: Rain;
   private post!: PostStack;
@@ -117,11 +122,15 @@ export class Game {
     this.world = new CollisionWorld();
     this.city = new City(this.scene, this.world, assets, art);
     this.city.bindEnvironment(this.renderer);
+    const cast = await loadCast(this.renderer);
     this.player = new Player(this.camera);
+    this.player.mount(cast.detective);
     this.player.teleport(this.city.spawn.x, this.city.spawn.y, this.city.spawn.z, this.city.spawn.yaw);
     this.checkpoint = { ...this.city.spawn };
     this.scene.add(this.player.body);
     this.alien = new AncientOne(this.world, this.scene);
+    this.alien.mount(cast.inmate);
+    this.people = new Bystanders(cast, this.scene, this.world);
     this.build = new BuildSystem(this.scene, this.world, assets.metal, art.wood);
     this.rain = new Rain();
     this.scene.add(this.rain.mesh);
@@ -144,9 +153,21 @@ export class Game {
       this.player.pitch = -0.1;
       this.player.writeCamera();
     } else if (this.capture === 'alien') {
-      this.alien.showcase(-1.6, 10.4, Math.PI * 0.82);
-      this.player.teleport(0.4, 0.02, 13.15, 0);
-      this.player.lookAt(-1.6, 1.15, 10.4);
+      this.alien.showcase(-1.35, 11.2, Math.PI * 0.78);
+      this.player.teleport(0.15, 0.02, 13.55, 0);
+      this.player.lookAt(-1.35, 1.05, 11.2);
+    } else if (this.capture === 'hands') {
+      this.player.teleport(0.4, 0.02, 16.8, 0);
+      this.player.pitch = -0.22;
+      this.player.writeCamera();
+    } else if (this.capture === 'npc') {
+      this.player.teleport(-2.1, 0.18, 20.3, 0);
+      this.player.lookAt(-4.35, 1.2, 18.55);
+    } else if (this.capture === 'nv') {
+      this.player.nightVision = true;
+      this.player.teleport(0.2, 0.02, 18.5, 0);
+      this.player.pitch = -0.18;
+      this.player.writeCamera();
     } else if (this.capture === 'lamp') {
       this.player.teleport(2.35, 0.05, 21.15, 0);
       this.build.tool = 'lamp';
@@ -192,6 +213,9 @@ export class Game {
     }
     this.city.update(this.renderer, this.camera, dt, this.simTime);
     this.rain.update(dt, this.player.x, this.player.z, this.player.yaw);
+    this.player.updatePresentation(dt);
+    this.people?.update(dt, this.player.x, this.player.z);
+    this.post.grade.uniforms.uNight.value = this.player.nightVision ? 1 : 0;
     this.hud.tickSubtitle(dt);
     this.hud.setWatch(this.watchString());
     this.hud.setHealth(this.player.health / TUNE.playerHealth);
@@ -506,6 +530,7 @@ export class Game {
       if (e.code === 'KeyE' && !e.repeat) this.interact();
       if (e.code === 'KeyB' && !e.repeat) this.build.cycle();
       if (e.code === 'KeyF' && !e.repeat) this.tryMelee();
+      if (e.code === 'KeyN' && !e.repeat) this.player.toggleNight();
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
@@ -586,6 +611,8 @@ export class Game {
         this.hud.setJournal(this.entries, false);
       },
       step: (dt) => this.update(dt),
+      handPoint: () => this.player.handLocal(),
+      setArms: (x, y, z) => this.player.setArms(x, y, z),
       slide: (vx, vz) => {
         const body = {
           x: this.player.x,

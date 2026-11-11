@@ -2,7 +2,7 @@
 export const TUNE = {
   exposure: 1.08,
   fogDensity: 0.028,
-  fogColor: 0x0b0d14,
+  fogColor: 0x07141a,
   hemiIntensity: 0.42,
   moonIntensity: 0.38,
   envIntensity: 0.28,

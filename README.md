@@ -38,8 +38,11 @@ The dev server and the preview both use the GitHub Pages base path `/destinys-wo
 | Left click or F | Melee (windup, then a short hit) |
 | B | Cycle hands / barricade / portable lamp / crate |
 | Click (while a prop is selected) | Place it on valid ground. Five of each. |
+| N | Camcorder night vision (green) |
 | Tab | Field journal |
 | Esc | Pause |
+
+The camcorder light stays on. Night vision is the green grade, the way a tape camera washes a hallway.
 
 Death reloads at the spawn, or at the last fragment you collected. Placed props stay for the session.
 
@@ -59,4 +62,4 @@ Textures and the night HDRI are [Poly Haven](https://polyhaven.com) assets under
 
 Posters, the docket, the clock face, and the wood grain are generated in the page. Rain, the drone, footsteps, the strike, and the fragment chime are synthesized with WebAudio. No account is required to hear them; the browser must be allowed to start audio from your click.
 
-Direct downloads used at build time are listed in [public/assets/CREDITS.txt](public/assets/CREDITS.txt).
+Character meshes, the decaying plaster, and the rest of the third-party files are credited in [CREDITS.md](CREDITS.md). Direct texture URLs are also listed in [public/assets/CREDITS.txt](public/assets/CREDITS.txt).

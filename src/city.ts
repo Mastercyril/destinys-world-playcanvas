@@ -1,6 +1,8 @@
 import {
+  AdditiveBlending,
   BoxGeometry,
   BufferAttribute,
+  CanvasTexture,
   BufferGeometry,
   CircleGeometry,
   Color,
@@ -13,10 +15,12 @@ import {
   MeshPhysicalMaterial,
   MeshStandardMaterial,
   Object3D,
+  SRGBColorSpace,
   PlaneGeometry,
   PointLight,
   Scene,
   ShaderMaterial,
+  DoubleSide,
   SphereGeometry,
   Vector2,
   WebGLRenderer,
@@ -295,7 +299,10 @@ export class City {
       const back = -14.4;
       this.box(`${id}-s`, x1 - x0, b.h, 12.0 - b.z0, (x0 + x1) / 2, b.h / 2, (b.z0 + 12.0) / 2, mat, 'static');
       this.box(`${id}-n`, x1 - x0, b.h, b.z1 - 17.2, (x0 + x1) / 2, b.h / 2, (17.2 + b.z1) / 2, mat, 'static');
-      this.box(`${id}-back`, back - x0, b.h, 5.2, (x0 + back) / 2, b.h / 2, 14.6, mat, 'static');
+      // Back mass keeps a door into the decaying hall (z 15.05–17.05, below the lintel).
+      this.box(`${id}-back-s`, back - x0, b.h, 15.05 - 12.0, (x0 + back) / 2, b.h / 2, (12.0 + 15.05) / 2, mat, 'static');
+      this.box(`${id}-back-ceil`, back - x0, b.h - 3.05, 2.0, (x0 + back) / 2, 3.05 + (b.h - 3.05) / 2, 16.05, mat, 'static');
+      this.box(`${id}-back-n`, back - x0, b.h, 0.2, (x0 + back) / 2, b.h / 2, 17.1, mat, 'static');
       this.box(`${id}-lintel`, x1 - back, b.h - 3.35, 5.2, (back + x1) / 2, 3.35 + (b.h - 3.35) / 2, 14.6, mat, 'static');
     }
     const cx = (b.x0 + b.x1) / 2;
@@ -333,7 +340,7 @@ export class City {
       for (let z = z0 + 1.25; z < z1 - 1.05; z += 2.4) {
         if (skip && z > skip.z0 && z < skip.z1 && y < skip.y1) continue;
         const roll = this.rand();
-        const kind: Win['kind'] = roll > 0.88 ? 'lit' : y < 2.5 && roll < 0.22 ? 'board' : 'glass';
+        const kind: Win['kind'] = roll > 0.94 ? 'lit' : roll < 0.48 ? 'board' : 'glass';
         this.windows.push({ x, y, z, rotY, kind });
       }
     }
@@ -537,6 +544,124 @@ export class City {
     notice.position.set(-1.15, 0, 20.55);
     notice.rotation.y = 0.18;
     this.scene.add(notice);
+    this.asylumHall();
+    this.ivyAndSteps();
+  }
+
+  /** A short rotting hallway behind the precinct lobby. */
+  private asylumHall(): void {
+    const plaster = new MeshPhysicalMaterial({
+      map: this.assets.plaster.map,
+      normalMap: this.assets.plaster.normalMap,
+      roughnessMap: this.assets.plaster.roughnessMap,
+      color: 0x8a8178,
+      roughness: 0.92,
+      metalness: 0,
+      envMapIntensity: 0.15,
+    });
+    const trim = new MeshStandardMaterial({ color: 0x2a241c, roughness: 0.7, metalness: 0.05 });
+    // Walkable floor continuing the lobby into the block.
+    this.slab('hall-floor', plaster, 9.2, 0.36, 2.15, -18.7, 0.0, 16.05, 'ground', 1.6);
+    this.box('hall-south', 9.4, 3.05, 0.28, -18.6, 1.52, 15.12, trim, 'static');
+    this.box('hall-north', 5.2, 3.05, 0.28, -20.7, 1.52, 17.0, trim, 'static');
+    this.box('hall-end', 0.32, 3.05, 2.15, -23.3, 1.52, 16.05, trim, 'static');
+    this.box('hall-ceiling', 9.2, 0.28, 2.15, -18.7, 3.15, 16.05, trim, 'static');
+
+    const wall = new Mesh(
+      new PlaneGeometry(8.6, 2.5),
+      new MeshStandardMaterial({
+        map: this.assets.plaster.map,
+        normalMap: this.assets.plaster.normalMap,
+        roughnessMap: this.assets.plaster.roughnessMap,
+        color: 0xc4b4a4,
+        roughness: 0.86,
+      }),
+    );
+    wall.position.set(-18.8, 1.55, 15.28);
+    this.scene.add(wall);
+    const wainscot = new Mesh(new PlaneGeometry(8.6, 0.85), trim);
+    wainscot.position.set(-18.8, 0.6, 15.3);
+    this.scene.add(wainscot);
+
+    const tube = new Mesh(
+      new BoxGeometry(1.4, 0.08, 0.12),
+      new MeshBasicMaterial({ color: 0xd7ffe8 }),
+    );
+    tube.position.set(-20.2, 2.85, 16.05);
+    this.scene.add(tube);
+    const fluor = new PointLight(0xd5ffe6, 16, 8, 2);
+    fluor.position.set(-20.2, 2.7, 16.05);
+    fluor.layers.enable(1);
+    this.scene.add(fluor);
+    this.lamps.push({ light: fluor, base: 16, seed: 9.1 });
+
+    const shaftMat = new ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: AdditiveBlending,
+      uniforms: {},
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `varying vec2 vUv; void main(){
+        float shaft = smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.2, vUv.y);
+        float across = smoothstep(0.0, 0.25, vUv.x) * smoothstep(1.0, 0.75, vUv.x);
+        gl_FragColor = vec4(0.75, 0.95, 0.85, shaft * across * 0.22);
+      }`,
+    });
+    const shaft = new Mesh(new PlaneGeometry(0.7, 2.6), shaftMat);
+    shaft.position.set(-20.2, 1.5, 16.2);
+    shaft.renderOrder = 2;
+    this.scene.add(shaft);
+
+    const rubble = new Mesh(new BoxGeometry(0.7, 0.28, 0.55), plaster);
+    rubble.position.set(-21.4, 0.32, 15.7);
+    rubble.rotation.y = 0.4;
+    rubble.castShadow = true;
+    this.scene.add(rubble);
+  }
+
+  private ivyAndSteps(): void {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 256;
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    g.clearRect(0, 0, 256, 256);
+    g.fillStyle = '#14301c';
+    for (let i = 0; i < 48; i++) {
+      g.globalAlpha = 0.75;
+      g.beginPath();
+      g.ellipse(Math.random() * 256, Math.random() * 256, 16 + Math.random() * 14, 7, Math.random() * 3, 0, Math.PI * 2);
+      g.fill();
+    }
+    const map = new CanvasTexture(canvas);
+    map.colorSpace = SRGBColorSpace;
+    const ivyMat = new MeshStandardMaterial({
+      map,
+      color: 0x1d3a24,
+      transparent: true,
+      alphaTest: 0.35,
+      roughness: 0.8,
+      side: DoubleSide,
+    });
+    const spots: Array<[number, number, number, number]> = [
+      [-9.05, 4.2, 10.2, 2.4],
+      [-9.05, 6.4, 8.4, 3.1],
+      [-9.05, 3.2, 19.4, 1.8],
+      [9.05, 5.1, 12.2, 2.6],
+    ];
+    for (const [x, y, z, s] of spots) {
+      const leaf = new Mesh(new PlaneGeometry(s, s * 1.4), ivyMat);
+      leaf.position.set(x, y, z);
+      leaf.rotation.y = x < 0 ? Math.PI / 2 : -Math.PI / 2;
+      this.scene.add(leaf);
+    }
+    const step = new MeshStandardMaterial({ color: 0x6e6a66, roughness: 0.9 });
+    for (const [x, w] of [[-8.55, 3.2], [-8.15, 3.6]] as Array<[number, number]>) {
+      const stone = new Mesh(new BoxGeometry(0.35, 0.12, w), step);
+      stone.position.set(x, 0.22, 14.6);
+      stone.castShadow = true;
+      stone.receiveShadow = true;
+      this.scene.add(stone);
+    }
   }
 
   private drain(): void {

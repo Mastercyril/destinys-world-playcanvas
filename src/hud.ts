@@ -58,7 +58,7 @@ export class Hud {
           <li>WASD move · mouse look · Shift sprint</li>
           <li>C toggle crouch · Ctrl hold crouch</li>
           <li>E examine, read, collect · Tab journal</li>
-          <li>Left click or F strike · B place</li>
+          <li>Left click or F strike · B place · N night vision</li>
         </ul>
         <button id="resume" type="button">Resume</button>
       </div>
@@ -74,7 +74,7 @@ export class Hud {
         <button id="start" type="button" hidden>Click to begin</button>
         <ul class="controls">
           <li>WASD move</li><li>Mouse look</li><li>Shift sprint</li><li>C / Ctrl crouch</li>
-          <li>E interact</li><li>Tab journal</li><li>Click / F strike</li><li>B place</li><li>Esc pause</li>
+          <li>E interact</li><li>Tab journal</li><li>Click / F strike</li><li>B place</li><li>N night vision</li><li>Esc pause</li>
         </ul>
       </div>
     `;

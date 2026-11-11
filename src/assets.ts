@@ -20,6 +20,7 @@ const FILES = {
   brick: ['brick_diff.jpg', 'brick_nor.jpg', 'brick_rough.jpg'],
   concrete: ['concrete_diff.jpg', 'concrete_nor.jpg', 'concrete_rough.jpg'],
   metal: ['metal_diff.jpg', 'metal_nor.jpg', 'metal_rough.jpg'],
+  plaster: ['plaster_diff.jpg', 'plaster_nor.jpg', 'plaster_rough.jpg'],
 } as const;
 
 export interface SurfaceMaps {
@@ -34,6 +35,7 @@ export interface AssetLibrary {
   brick: SurfaceMaps;
   concrete: SurfaceMaps;
   metal: SurfaceMaps;
+  plaster: SurfaceMaps;
 }
 
 function baseUrl(): string {
@@ -53,7 +55,7 @@ export async function loadAssets(renderer: WebGLRenderer, onProgress: (ratio: nu
   const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const jobs: Promise<void>[] = [];
   let done = 0;
-  const total = 12 + 1;
+  const total = Object.keys(FILES).length * 3 + 1;
   const bump = () => {
     done += 1;
     onProgress(done / total);
@@ -108,5 +110,6 @@ export async function loadAssets(renderer: WebGLRenderer, onProgress: (ratio: nu
     brick: surfaces.brick,
     concrete: surfaces.concrete,
     metal: surfaces.metal,
+    plaster: surfaces.plaster,
   };
 }

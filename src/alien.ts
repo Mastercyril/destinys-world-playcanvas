@@ -1,24 +1,10 @@
-import {
-  CapsuleGeometry,
-  Group,
-  Mesh,
-  MeshStandardMaterial,
-  Object3D,
-  PointLight,
-  SphereGeometry,
-  BoxGeometry,
-  Scene,
-} from 'three';
+import { Group, Scene } from 'three';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { CollisionWorld } from './collision';
+import { createPuppet, type Puppet } from './rigs';
 import { TUNE } from './tune';
 
 export type AlienMode = 'patrol' | 'chase' | 'windup' | 'recover' | 'dead';
-
-interface Joint {
-  node: Object3D;
-  restX: number;
-  restZ: number;
-}
 
 export interface AlienHooks {
   onWindup: () => void;
@@ -52,10 +38,7 @@ export class AncientOne {
   readonly height = 2.25;
   readonly group: Group;
   private readonly world: CollisionWorld;
-  private readonly flesh: MeshStandardMaterial;
-  private readonly vein: MeshStandardMaterial;
-  private readonly glow: PointLight;
-  private readonly joints: Record<string, Joint> = {};
+  private puppet: Puppet | null = null;
   private waypoint = 0;
   private phase = 0;
   private windupT = 0;
@@ -68,27 +51,8 @@ export class AncientOne {
 
   constructor(world: CollisionWorld, scene: Scene) {
     this.world = world;
-    this.flesh = new MeshStandardMaterial({
-      color: 0x8d7384,
-      roughness: 0.42,
-      metalness: 0.08,
-      emissive: 0x2a1020,
-      emissiveIntensity: 0.35,
-    });
-    this.vein = new MeshStandardMaterial({
-      color: 0x4a1830,
-      emissive: 0xc43a78,
-      emissiveIntensity: 0.85,
-      roughness: 0.35,
-      metalness: 0.05,
-    });
     this.group = new Group();
     this.group.name = 'ancient-one';
-    this.buildBody();
-    this.glow = new PointLight(0xaa3366, 1.8, 4.2, 2);
-    this.glow.position.set(0, 2.05, -0.1);
-    this.glow.layers.enable(1);
-    this.group.add(this.glow);
     scene.add(this.group);
     this.syncMesh();
   }
@@ -130,7 +94,6 @@ export class AncientOne {
   hurt(amount: number): void {
     if (this.mode === 'dead') return;
     this.health = Math.max(0, this.health - amount);
-    this.flesh.emissiveIntensity = 1.4;
     if (this.mode === 'patrol') this.mode = 'chase';
     if (this.health <= 0) {
       this.mode = 'dead';
@@ -146,8 +109,6 @@ export class AncientOne {
     player: { x: number; y: number; z: number; eyeY: number; crouching: boolean },
     hooks: AlienHooks,
   ): void {
-    this.flesh.emissiveIntensity += (0.4 - this.flesh.emissiveIntensity) * Math.min(1, dt * 3);
-    this.vein.emissiveIntensity = 0.85 + Math.sin(performance.now() * 0.006) * 0.35;
     if (this.frozen) {
       this.phase += dt;
       this.animate(dt);
@@ -158,7 +119,7 @@ export class AncientOne {
       this.fall = Math.min(1, this.fall + dt * 1.4);
       this.group.rotation.z = this.fall * 1.25;
       this.group.position.y = this.y + this.fall * 0.15;
-      this.glow.intensity = 0.4;
+      this.animate(dt);
       return;
     }
 
@@ -322,128 +283,22 @@ export class AncientOne {
     this.group.rotation.y = this.yaw;
   }
 
-  private animate(_dt: number): void {
-    const s = Math.sin(this.phase);
-    const walk = this.mode === 'dead' ? 0 : Math.min(1, Math.hypot(this.vx, this.vz) / 1.4);
-    const attack =
-      this.mode === 'windup' ? 1 - Math.max(0, this.windupT) / 0.58 : this.mode === 'recover' ? 0.35 : 0;
-    // Limb meshes hang on local -Y, so a rest angle near 0 points at the ground.
-    this.setJoint('thighL', 0.2 + s * 0.5 * walk, 0.08);
-    this.setJoint('thighR', 0.2 - s * 0.5 * walk, -0.08);
-    this.setJoint('shinL', -0.4 - Math.max(0, s) * 0.15 * walk, 0);
-    this.setJoint('shinR', -0.4 - Math.max(0, -s) * 0.15 * walk, 0);
-    this.setJoint('armL', 0.2 - s * 0.45 * walk - attack * 1.35, 0.22);
-    this.setJoint('armR', 0.2 + s * 0.45 * walk - attack * 1.35, -0.22);
-    this.setJoint('midL', 0.45, 0.1);
-    this.setJoint('midR', 0.45, -0.1);
-    this.setJoint('foreL', 0.35, 0);
-    this.setJoint('foreR', 0.35, 0);
-    this.setJoint('smallL', 0.5 + Math.sin(this.phase * 0.7) * 0.3, 0.45);
-    this.setJoint('smallR', 0.5 - Math.sin(this.phase * 0.7) * 0.3, -0.45);
-    const hips = this.joints.hips?.node;
-    if (hips) hips.position.y = 1.02 + Math.abs(s) * 0.04 * walk;
+
+  /** CC0 MakeHuman body, scarred and lengthened. Feet are planted on y=0 of the model. */
+  mount(gltf: GLTF): void {
+    this.puppet = createPuppet(gltf, 'ancient');
+    this.group.add(this.puppet.model);
+    this.puppet.play('idle');
   }
 
-  private setJoint(name: string, x: number, z: number): void {
-    const j = this.joints[name];
-    if (!j) return;
-    j.node.rotation.x = x;
-    j.node.rotation.z = z;
-    j.restX = x;
-    j.restZ = z;
-  }
-
-  private buildBody(): void {
-    const hips = this.joint(this.group, 'hips', 0, 1.2, 0);
-    this.capsule(hips, 0.22, 0.16, this.flesh);
-    const spine = this.joint(hips, 'spine', 0, 0.16, 0);
-    this.capsule(spine, 0.48, 0.16, this.flesh);
-    const chest = this.joint(spine, 'chest', 0, 0.48, 0);
-    const vein = new Mesh(new BoxGeometry(0.05, 0.42, 0.05), this.vein);
-    vein.position.set(0.1, 0.2, -0.12);
-    chest.add(vein);
-    const neck = this.joint(chest, 'neck', 0, 0.16, 0);
-    this.capsule(neck, 0.16, 0.06, this.flesh);
-    const headPivot = this.joint(neck, 'head', 0, 0.18, 0);
-    const head = new Mesh(new SphereGeometry(0.16, 14, 12), this.flesh);
-    head.scale.set(0.75, 1.35, 0.82);
-    head.position.y = 0.12;
-    head.castShadow = true;
-    headPivot.add(head);
-    const slit = new Mesh(new BoxGeometry(0.035, 0.28, 0.03), this.vein);
-    slit.position.set(0, 0.12, -0.12);
-    headPivot.add(slit);
-
-    this.arm(chest, 'L', 1);
-    this.arm(chest, 'R', -1);
-    this.smallArm(chest, 'L', 1);
-    this.smallArm(chest, 'R', -1);
-    this.leg(hips, 'L', 1);
-    this.leg(hips, 'R', -1);
-  }
-
-  private arm(parent: Object3D, side: 'L' | 'R', sign: number): void {
-    const upper = this.joint(parent, `arm${side}`, sign * 0.26, 0.1, 0);
-    this.hang(upper, 0.5, 0.065, this.flesh);
-    const mid = this.joint(upper, `mid${side}`, sign * 0.04, -0.5, 0);
-    this.hang(mid, 0.42, 0.05, this.flesh);
-    const fore = this.joint(mid, `fore${side}`, 0, -0.42, 0);
-    this.hang(fore, 0.4, 0.042, this.flesh);
-    const hand = this.joint(fore, `hand${side}`, 0, -0.4, 0);
-    for (let f = 0; f < 3; f++) {
-      const finger = new Mesh(new CapsuleGeometry(0.014, 0.24, 2, 5), this.flesh);
-      finger.position.set((f - 1) * 0.05, -0.16, 0);
-      finger.castShadow = true;
-      hand.add(finger);
-    }
-  }
-
-  private smallArm(parent: Object3D, side: 'L' | 'R', sign: number): void {
-    const root = this.joint(parent, `small${side}`, sign * 0.14, 0.02, 0.1);
-    this.hang(root, 0.36, 0.035, this.vein);
-    const tip = this.joint(root, `smallTip${side}`, 0, -0.36, 0);
-    this.hang(tip, 0.3, 0.028, this.flesh);
-  }
-
-  private leg(parent: Object3D, side: 'L' | 'R', sign: number): void {
-    const thigh = this.joint(parent, `thigh${side}`, sign * 0.14, -0.02, 0);
-    this.hang(thigh, 0.58, 0.085, this.flesh);
-    const shin = this.joint(thigh, `shin${side}`, 0, -0.58, 0);
-    this.hang(shin, 0.52, 0.065, this.flesh);
-    const foot = this.joint(shin, `foot${side}`, 0, -0.5, 0);
-    const paw = new Mesh(new CapsuleGeometry(0.055, 0.2, 2, 5), this.flesh);
-    paw.rotation.x = Math.PI / 2;
-    paw.position.set(0, -0.04, -0.12);
-    paw.castShadow = true;
-    foot.add(paw);
-  }
-
-  private hang(parent: Object3D, length: number, radius: number, material: MeshStandardMaterial): Mesh {
-    const cyl = Math.max(0.02, length - radius * 2);
-    const mesh = new Mesh(new CapsuleGeometry(radius, cyl, 3, 7), material);
-    mesh.position.y = -length * 0.5;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    return mesh;
-  }
-
-  private joint(parent: Object3D, name: string, x: number, y: number, z: number): Object3D {
-    const node = new Object3D();
-    node.name = name;
-    node.position.set(x, y, z);
-    parent.add(node);
-    this.joints[name] = { node, restX: 0, restZ: 0 };
-    return node;
-  }
-
-  private capsule(parent: Object3D, length: number, radius: number, material: MeshStandardMaterial): Mesh {
-    const cyl = Math.max(0.02, length - radius * 2);
-    const mesh = new Mesh(new CapsuleGeometry(radius, cyl, 3, 7), material);
-    mesh.position.y = length * 0.5;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    parent.add(mesh);
-    return mesh;
+  private animate(dt: number): void {
+    if (!this.puppet) return;
+    const speed = Math.hypot(this.vx, this.vz);
+    let clip = 'idle';
+    if (!this.frozen && (this.mode === 'windup' || this.mode === 'recover')) clip = 'attack';
+    else if (!this.frozen && this.mode === 'chase') clip = speed > 0.8 ? 'run' : 'walk';
+    else if (!this.frozen && this.mode === 'patrol' && speed > 0.35) clip = 'walk';
+    this.puppet.play(clip);
+    this.puppet.update(dt);
   }
 }

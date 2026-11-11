@@ -21,6 +21,7 @@ const GradeShader = {
     tDiffuse: { value: null },
     uTime: { value: 0 },
     uHurt: { value: 0 },
+    uNight: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -33,20 +34,28 @@ const GradeShader = {
     uniform sampler2D tDiffuse;
     uniform float uTime;
     uniform float uHurt;
+    uniform float uNight;
     varying vec2 vUv;
     void main() {
-      vec4 color = texture2D(tDiffuse, vUv);
-      float n = fract(sin(dot(gl_FragCoord.xy + uTime * 48.0, vec2(12.9898, 78.233))) * 43758.5453);
-      color.rgb += (n - 0.5) * 0.038;
+      vec2 off = (vUv - 0.5) * 0.008;
+      float r = texture2D(tDiffuse, vUv + off).r;
+      float gch = texture2D(tDiffuse, vUv).g;
+      float b = texture2D(tDiffuse, vUv - off).b;
+      vec3 color = vec3(r, gch, b);
+      float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+      vec3 teal = color * vec3(0.45, 0.78, 0.82);
+      vec3 warm = color * vec3(1.08, 0.86, 0.68);
+      color = mix(teal, warm, smoothstep(0.08, 0.62, luma));
+      float n = fract(sin(dot(gl_FragCoord.xy + uTime * 60.0, vec2(12.9898, 78.233))) * 43758.5453);
+      color.rgb += (n - 0.5) * 0.055;
       vec2 p = vUv - 0.5;
-      float vig = smoothstep(0.92, 0.32, length(p * vec2(1.18, 1.08)));
-      color.rgb *= mix(0.58, 1.0, vig);
-      float edge = smoothstep(0.42, 0.98, length(p * vec2(1.25, 1.12)));
-      color.rgb += vec3(0.20, 0.02, 0.06) * edge * 0.42;
-      float luma = dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
-      color.rgb += vec3(0.035, 0.0, 0.02) * (1.0 - smoothstep(0.0, 0.5, luma));
-      color.rgb = mix(color.rgb, vec3(0.45, 0.02, 0.05), clamp(uHurt, 0.0, 0.72));
-      gl_FragColor = color;
+      float vig = smoothstep(0.88, 0.28, length(p * vec2(1.2, 1.12)));
+      color.rgb *= mix(0.42, 1.0, vig);
+      vec3 nv = vec3(luma * 0.25, luma * 1.25, luma * 0.32);
+      nv += sin(gl_FragCoord.y * 1.7 + uTime * 9.0) * 0.035;
+      color = mix(color, nv, clamp(uNight, 0.0, 1.0));
+      color = mix(color, vec3(0.42, 0.03, 0.03), clamp(uHurt, 0.0, 0.72));
+      gl_FragColor = vec4(color, 1.0);
     }
   `,
 };

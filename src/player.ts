@@ -1,15 +1,17 @@
 import {
   BoxGeometry,
-  CapsuleGeometry,
-  CylinderGeometry,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PerspectiveCamera,
-  SphereGeometry,
+  SpotLight,
+  Vector3,
 } from 'three';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { CollisionWorld } from './collision';
+import { createPuppet, type Puppet } from './rigs';
 import { TUNE } from './tune';
 
 const STAND_H = 1.72;
@@ -40,20 +42,56 @@ export class Player {
   readonly camera: PerspectiveCamera;
   readonly body: Group;
   readonly viewmodel: Group;
-  private readonly baton: Mesh;
+  readonly lamp: SpotLight;
+  nightVision = false;
+  private mirrorPuppet: Puppet | null = null;
+  private hands: Puppet | null = null;
+  private armPose = { x: 0.6, y: 0.8, z: -1.2 };
 
   constructor(camera: PerspectiveCamera) {
     this.camera = camera;
-    this.body = buildCoat();
+    this.body = new Group();
+    this.body.name = 'alex-reflection';
     this.viewmodel = new Group();
-    this.viewmodel.layers.set(2);
-    const mat = new MeshStandardMaterial({ color: 0x2a241c, roughness: 0.45, metalness: 0.35 });
-    this.baton = new Mesh(new BoxGeometry(0.04, 0.04, 0.52), mat);
-    this.baton.position.set(0.26, -0.24, -0.48);
-    this.baton.layers.set(2);
-    this.baton.visible = false;
-    this.viewmodel.add(this.baton);
+    this.viewmodel.name = 'alex-hands';
     camera.add(this.viewmodel);
+    this.lamp = new SpotLight(0xfff0d2, 42, 20, 0.46, 0.55, 1.6);
+    this.lamp.position.set(0.16, -0.14, -0.15);
+    this.lamp.target.position.set(0.05, -0.28, -6);
+    this.lamp.castShadow = true;
+    this.lamp.shadow.mapSize.set(512, 512);
+    this.lamp.shadow.bias = -0.0008;
+    this.lamp.shadow.camera.near = 0.2;
+    this.lamp.shadow.camera.far = 18;
+    this.lamp.layers.enable(1);
+    this.lamp.shadow.camera.layers.enable(1);
+    camera.add(this.lamp);
+    camera.add(this.lamp.target);
+  }
+
+  /** Suited MakeHuman body for the mirror, and the same rig as first-person hands. */
+  mount(gltf: GLTF): void {
+    const mirror = createPuppet(gltf, 'detective');
+    mirror.model.traverse((obj) => {
+      obj.layers.set(1);
+    });
+    this.body.add(mirror.model);
+    this.mirrorPuppet = mirror;
+
+    const hands = createPuppet(gltf, 'detective', 'flashlight');
+    hands.model.traverse((obj) => {
+      obj.layers.set(2);
+      obj.castShadow = false;
+    });
+    this.alignToEyes(hands.model);
+    this.viewmodel.add(hands.model);
+    this.hands = hands;
+    const palm = hands.model.getObjectByName('hand_r');
+    if (palm) palm.add(camcorderMesh());
+  }
+
+  toggleNight(): void {
+    this.nightVision = !this.nightVision;
   }
 
   get height(): number {
@@ -183,14 +221,8 @@ export class Player {
   }
 
   private advanceSwing(dt: number, tryHit: () => void): void {
-    if (this.swing === 'ready') {
-      this.baton.visible = false;
-      return;
-    }
+    if (this.swing === 'ready') return;
     this.swingT -= dt;
-    this.baton.visible = this.swing === 'windup' || this.swing === 'active';
-    const raised = this.swing === 'windup' ? 0.8 : this.swing === 'active' ? -1.15 : 0.2;
-    this.baton.rotation.x = raised;
     if (this.swing === 'windup' && this.swingT <= 0) {
       this.swing = 'active';
       this.swingT = 0.09;
@@ -205,8 +237,62 @@ export class Player {
       }
     } else if (this.swing === 'cooldown' && this.swingT <= 0) {
       this.swing = 'ready';
-      this.baton.visible = false;
     }
+  }
+
+  updatePresentation(dt: number): void {
+    const moving = Math.hypot(this.vx, this.vz);
+    const stride = moving > 2.8 ? 'run' : moving > 0.35 ? 'walk' : 'idle';
+    this.mirrorPuppet?.play(stride);
+    this.mirrorPuppet?.update(dt);
+    const striking = this.swing === 'windup' || this.swing === 'active';
+    this.hands?.play(striking ? 'attack' : 'hold');
+    this.hands?.update(dt);
+    this.poseArms();
+    this.viewmodel.position.y = this.crouching ? -0.32 : 0;
+    this.lamp.color.setHex(this.nightVision ? 0xc8ffd2 : 0xfff0d2);
+    this.lamp.intensity = this.nightVision ? 10 : 46;
+  }
+
+  setArms(x: number, y: number, z: number): void {
+    this.armPose = { x, y, z };
+    this.poseArms();
+  }
+
+  handLocal(): { x: number; y: number; z: number } | null {
+    const hand = this.hands?.model.getObjectByName('hand_r');
+    if (!hand) return null;
+    const v = new Vector3();
+    hand.getWorldPosition(v);
+    this.camera.worldToLocal(v);
+    return { x: v.x, y: v.y, z: v.z };
+  }
+
+  private poseArms(): void {
+    const bend = (name: string, x: number, y: number, z: number) => {
+      const bone = this.hands?.model.getObjectByName(name);
+      if (!bone) return;
+      bone.rotation.set(x, y, z);
+    };
+    // Applied after the mixer so the camcorder sits in front of the lens.
+    const a = this.armPose;
+    bend('upperarm_r', a.x, a.y, a.z);
+    bend('lowerarm_r', a.x * 0.65, 0.1, 0.1);
+    bend('upperarm_l', a.x * 0.85, -a.y, -a.z);
+    bend('lowerarm_l', a.x * 0.45, -0.1, -0.1);
+  }
+
+  private alignToEyes(model: Object3D): void {
+    model.updateWorldMatrix(true, true);
+    const head = model.getObjectByName('head');
+    if (!head) return;
+    const headPos = new Object3D();
+    head.getWorldPosition(headPos.position);
+    model.position.sub(headPos.position);
+    // Drop the skull behind the near plane and bring the forearms into the lower frame.
+    model.position.z += 0.34;
+    model.position.y -= 0.2;
+    model.position.x += 0.04;
   }
 
   writeCamera(): void {
@@ -223,47 +309,19 @@ export class Player {
   }
 }
 
-function buildCoat(): Group {
-  const root = new Group();
-  root.name = 'detective-reflection';
-  const cloth = new MeshStandardMaterial({ color: 0x3c4452, roughness: 0.82, metalness: 0.04 });
-  const dark = new MeshStandardMaterial({ color: 0x23262c, roughness: 0.7, metalness: 0.08 });
-  const skin = new MeshStandardMaterial({ color: 0xc2b2a2, roughness: 0.6, metalness: 0 });
-  const shirt = new MeshStandardMaterial({ color: 0xd5cbb8, roughness: 0.55, metalness: 0 });
-
-  const coat = new Mesh(new BoxGeometry(0.52, 0.82, 0.28), cloth);
-  coat.position.y = 1.18;
-  root.add(coat);
-  const collar = new Mesh(new BoxGeometry(0.16, 0.16, 0.05), shirt);
-  collar.position.set(0, 1.48, -0.13);
-  root.add(collar);
-  const legGeo = new CapsuleGeometry(0.07, 0.55, 3, 6);
-  const legL = new Mesh(legGeo, dark);
-  legL.position.set(-0.12, 0.48, 0);
-  const legR = legL.clone();
-  legR.position.x = 0.12;
-  root.add(legL, legR);
-  const armGeo = new CapsuleGeometry(0.055, 0.48, 3, 6);
-  const armL = new Mesh(armGeo, cloth);
-  armL.position.set(-0.34, 1.2, 0);
-  armL.rotation.z = 0.18;
-  const armR = armL.clone();
-  armR.position.x = 0.34;
-  armR.rotation.z = -0.18;
-  root.add(armL, armR);
-  const head = new Mesh(new SphereGeometry(0.13, 12, 10), skin);
-  head.position.y = 1.72;
-  root.add(head);
-  const brim = new Mesh(new CylinderGeometry(0.2, 0.2, 0.025, 16), dark);
-  brim.position.y = 1.84;
-  const crown = new Mesh(new CylinderGeometry(0.11, 0.12, 0.14, 12), dark);
-  crown.position.y = 1.92;
-  root.add(brim, crown);
-
-  root.traverse((obj: Object3D) => {
-    obj.layers.set(1);
-    obj.castShadow = false;
-    obj.receiveShadow = true;
-  });
-  return root;
+function camcorderMesh(): Object3D {
+  const rig = new Group();
+  const body = new Mesh(
+    new BoxGeometry(0.07, 0.1, 0.16),
+    new MeshStandardMaterial({ color: 0x1a1c1e, roughness: 0.45, metalness: 0.4 }),
+  );
+  const lens = new Mesh(
+    new BoxGeometry(0.04, 0.04, 0.02),
+    new MeshBasicMaterial({ color: 0xfff4dd }),
+  );
+  lens.position.set(0, 0.01, -0.09);
+  body.position.set(0.02, 0.04, 0.04);
+  rig.add(body, lens);
+  rig.traverse((obj) => obj.layers.set(2));
+  return rig;
 }
