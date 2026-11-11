@@ -23,6 +23,17 @@ Textures (1k JPG):
   https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_metal_02/rusty_metal_02_nor_gl_1k.jpg
   https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rusty_metal_02/rusty_metal_02_rough_1k.jpg
 
+- painted_plaster_wall
+  https://polyhaven.com/a/painted_plaster_wall
+  https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_plaster_wall/painted_plaster_wall_diff_1k.jpg
+  https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_plaster_wall/painted_plaster_wall_nor_gl_1k.jpg
+  https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/painted_plaster_wall/painted_plaster_wall_rough_1k.jpg
+
+Characters (CC0 MakeHuman meshes, Meshopt + KTX2). See /CREDITS.md.
+- public/assets/models/inmate.glb
+- public/assets/models/civilian.glb
+- public/assets/models/detective.glb
+
 HDRI (1k, image-based lighting):
 - cobblestone_street_night
   https://polyhaven.com/a/cobblestone_street_night
