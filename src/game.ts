@@ -9,7 +9,7 @@ import { clockTexture, docketTexture, evacuationPoster, precinctSign, roadStenci
 import { City, type Hotspot } from './city';
 import { CollisionWorld } from './collision';
 import { DialoguePanel, TALKERS, type Talker } from './dialogue';
-import { DirectorPanel, type GameConceptSpec, type NpcSpec } from './director';
+import { DirectorPanel, generateGameConcept, generateNpc, type GameConceptSpec, type NpcSpec } from './director';
 import { Hud, type JournalEntry } from './hud';
 import { Metro } from './metro';
 import { Player } from './player';
@@ -19,6 +19,8 @@ import { createPuppet, type CastGltf, type Puppet } from './rigs';
 import { TUNE } from './tune';
 
 export interface DebugApi {
+  spawnNpc: (prompt: string) => void;
+  gameConcept: (prompt: string) => void;
   probe: () => {
     y: number;
     x: number;
@@ -758,6 +760,8 @@ export class Game {
 
   private attachDebug(): void {
     const api: DebugApi = {
+      spawnNpc: () => undefined,
+      gameConcept: () => undefined,
       probe: () => ({
         y: this.player.y,
         x: this.player.x,
@@ -829,6 +833,20 @@ export class Game {
       },
       blocked: (x, y, z) => this.world.blocked(x, y, z, this.alien.radius, this.alien.height, new Set(['alien'])),
     };
+    api.spawnNpc = (prompt: string) => this.spawnGeneratedNpc(generateNpc(prompt));
+    api.gameConcept = (prompt: string) => this.saveGameConcept(generateGameConcept(prompt));
     window.__DW = api;
+
+    // 13th Chamber Game Studio bridge: the Vercel AI app drives the live
+    // game through postMessage — { type: 'dw-spawn-npc' | 'dw-game-concept', prompt }.
+    window.addEventListener('message', (ev: MessageEvent) => {
+      // Accept cross-origin (the Game Studio app on Vercel embeds this page).
+      // Payloads are validated by shape; operations are cosmetic only.
+      const data = ev.data as { type?: string; prompt?: string } | null;
+      if (!data || typeof data.prompt !== 'string') return;
+      if (data.type === 'dw-spawn-npc') this.spawnGeneratedNpc(generateNpc(data.prompt));
+      else if (data.type === 'dw-game-concept') this.saveGameConcept(generateGameConcept(data.prompt));
+    });
   }
 }
+
