@@ -1,10 +1,10 @@
 # Destiny's World: Lost Society in Time
 
-A browser vertical slice of Act I. You are Detective Alex Morgan, on foot in Thornhaven after the city has already been emptied.
+A browser vertical slice of Acts I–II. You are Detective Alex Morgan, on foot in Thornhaven after the city has already been emptied.
 
-The streets are too quiet for a missing-persons case. Evacuation notices are stamped **YESTERDAY**. You were not told. Clocks disagree by hours. In the shop glass, your coat is half a second behind you. Two pieces of temporal residue are still on the boulevard: the evidence-locker fragment, and the storm-drain time bruise. Something with too many joints is walking the same street.
+The streets are too quiet for a missing-persons case. Evacuation notices are stamped **YESTERDAY**. You were not told. Clocks disagree by hours. In the shop glass, your coat is half a second behind you. Four pieces of temporal residue remain: two on the boulevard, two below it in the Neon Underpass — and at the end of the tunnel, the Heart.
 
-This is a web vertical slice (Vite, TypeScript, Three.js). It is one city block, not the Unity game, not a PlayCanvas/VIVERSE build, and not AAA fidelity. Mood, investigation, and a single hostile are the point.
+This is a web vertical slice (Vite, TypeScript, Three.js). It is one city block plus a neon metro underpass, not the Unity game, not a PlayCanvas/VIVERSE build, and not AAA fidelity. Mood, investigation, and a single hostile are the point.
 
 **Play it:** [https://mastercyril.github.io/destinys-world-playcanvas/](https://mastercyril.github.io/destinys-world-playcanvas/)
 
@@ -39,10 +39,21 @@ The dev server and the preview both use the GitHub Pages base path `/destinys-wo
 | B | Cycle hands / barricade / portable lamp / crate |
 | Click (while a prop is selected) | Place it on valid ground. Five of each. |
 | N | Camcorder night vision (green) |
+| M | AI builder mode — generate NPCs into the world, design new game concepts |
+| E (near a survivor) | Talk — Mirella, Ghost, Warden Kael, Sable, and anyone the AI spawns |
+
 | Tab | Field journal |
 | Esc | Pause |
 
+## The game loop
+
+Collect **4 temporal fragments** — two on the boulevard, two in the Neon Underpass. At two fragments the north gate loses power and the **underpass** opens: wet concrete, Japanese neon, Ghost's hacker den, and the **Heart** portal at the end. Enter the Heart with all four fragments to close Act I. The Ancient One patrols the boulevard the whole time: fight it, hide from it, or die and respawn at your last checkpoint.
+
 The camcorder light stays on. Night vision is the green grade, the way a tape camera washes a hallway.
+
+## AI builder mode
+
+Press **M** in game. The same deterministic generator that runs daily in the [AI-Alien-Horror-Game repo](https://github.com/Mastercyril/AI-Alien-Horror-Game) works inside the slice: seed it with a prompt and spawn a fully-dressed NPC with dialogue, or synthesize a complete new game concept (genre, core loop, mechanics, antagonist, art direction) filed to your journal. No API keys — it runs entirely in your browser.
 
 Death reloads at the spawn, or at the last fragment you collected. Placed props stay for the session.
 
