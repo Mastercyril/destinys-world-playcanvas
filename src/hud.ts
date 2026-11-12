@@ -39,7 +39,7 @@ export class Hud {
           </div>
           <div class="stat right">
             <span>FRAGMENTS</span>
-            <strong id="fragments">0/2</strong>
+            <strong id="fragments">0/4</strong>
           </div>
         </div>
       </div>
@@ -59,8 +59,15 @@ export class Hud {
           <li>C toggle crouch · Ctrl hold crouch</li>
           <li>E examine, read, collect · Tab journal</li>
           <li>Left click or F strike · B place · N night vision</li>
+          <li>M AI builder · E talk to survivors</li>
         </ul>
         <button id="resume" type="button">Resume</button>
+      </div>
+      <div id="win" hidden>
+        <p class="kicker">Act I complete</p>
+        <h1>The Heart closed behind you</h1>
+        <p class="lede">Four fragments. One knot in the night, undone — for now.</p>
+        <button id="again" type="button">Return to the boulevard</button>
       </div>
       <div id="death" hidden>
         <p>Continuity claims another detective.</p>
@@ -74,7 +81,7 @@ export class Hud {
         <button id="start" type="button" hidden>Click to begin</button>
         <ul class="controls">
           <li>WASD move</li><li>Mouse look</li><li>Shift sprint</li><li>C / Ctrl crouch</li>
-          <li>E interact</li><li>Tab journal</li><li>Click / F strike</li><li>B place</li><li>N night vision</li><li>Esc pause</li>
+          <li>E interact</li><li>Tab journal</li><li>Click / F strike</li><li>B place</li><li>N night vision</li><li>M AI builder</li><li>Esc pause</li>
         </ul>
       </div>
     `;
@@ -150,7 +157,7 @@ export class Hud {
   }
 
   setFragments(count: number): void {
-    this.fragments.textContent = `${count}/2`;
+    this.fragments.textContent = `${count}/4`;
   }
 
   setWatch(text: string): void {
@@ -175,6 +182,14 @@ export class Hud {
 
   setDeath(open: boolean): void {
     this.death.hidden = !open;
+  }
+
+  get again(): HTMLButtonElement {
+    return this.must('again') as HTMLButtonElement;
+  }
+
+  setWin(open: boolean): void {
+    this.must('win').hidden = !open;
   }
 
   private must(id: string): HTMLElement {

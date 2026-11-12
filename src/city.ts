@@ -47,7 +47,7 @@ import { TUNE } from './tune';
 
 export interface Hotspot {
   id: string;
-  verb: 'Examine' | 'Read' | 'Collect';
+  verb: 'Examine' | 'Read' | 'Collect' | 'Talk' | 'Enter';
   name: string;
   minX: number;
   minY: number;

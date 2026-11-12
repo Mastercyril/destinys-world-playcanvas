@@ -1,4 +1,4 @@
-import { Clock, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
+import { Clock, Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
 import { loadAssets } from './assets';
 import { GameAudio } from './audio';
 import { AncientOne } from './alien';
@@ -8,10 +8,14 @@ import { BuildSystem, type Placement } from './build';
 import { clockTexture, docketTexture, evacuationPoster, precinctSign, roadStencil, woodTexture } from './canvases';
 import { City, type Hotspot } from './city';
 import { CollisionWorld } from './collision';
+import { DialoguePanel, TALKERS, type Talker } from './dialogue';
+import { DirectorPanel, type GameConceptSpec, type NpcSpec } from './director';
 import { Hud, type JournalEntry } from './hud';
+import { Metro } from './metro';
 import { Player } from './player';
 import { createPost, createRenderer, type PostStack } from './post';
 import { Rain } from './rain';
+import { createPuppet, type CastGltf, type Puppet } from './rigs';
 import { TUNE } from './tune';
 
 export interface DebugApi {
@@ -91,6 +95,13 @@ export class Game {
   private readonly watchStart = performance.now();
   private inputLockUntil = 0;
   private noticedAlien = false;
+  private dialogue!: DialoguePanel;
+  private director!: DirectorPanel;
+  private metro!: Metro;
+  private cast!: CastGltf;
+  private talkers: Talker[] = TALKERS.map((t) => ({ ...t }));
+  private spawned: Array<{ puppet: Puppet; anchor: Group }> = [];
+  private won = false;
 
   constructor(
     root: HTMLElement,
@@ -99,6 +110,12 @@ export class Game {
   ) {
     this.hud = new Hud(root);
     this.canvas = this.hud.canvas;
+    this.dialogue = new DialoguePanel(root);
+    this.director = new DirectorPanel();
+    this.director.mount(root);
+    this.director.onSpawnNpc = (spec) => this.spawnGeneratedNpc(spec);
+    this.director.onGameConcept = (spec) => this.saveGameConcept(spec);
+    this.hud.again.addEventListener('click', () => this.afterWin());
     this.bindInput();
   }
 
@@ -122,7 +139,24 @@ export class Game {
     this.world = new CollisionWorld();
     this.city = new City(this.scene, this.world, assets, art);
     this.city.bindEnvironment(this.renderer);
+    this.metro = new Metro(this.scene, this.world);
+    this.metro.lock();
+    this.city.hotspots.push(...this.metro.hotspots);
+    for (const t of this.talkers) {
+      this.city.hotspots.push({
+        id: `talk-${t.id}`,
+        verb: 'Talk',
+        name: t.name,
+        minX: t.x - 0.85,
+        maxX: t.x + 0.85,
+        minY: t.y,
+        maxY: t.y + 1.9,
+        minZ: t.z - 0.85,
+        maxZ: t.z + 0.85,
+      });
+    }
     const cast = await loadCast(this.renderer);
+    this.cast = cast;
     this.player = new Player(this.camera);
     this.player.mount(cast.detective);
     this.player.teleport(this.city.spawn.x, this.city.spawn.y, this.city.spawn.z, this.city.spawn.yaw);
@@ -174,6 +208,19 @@ export class Game {
       this.build.place({ x: 0.15, y: 0, z: 18.1, yaw: 0.4, valid: true });
       this.player.lookAt(0.15, 0.45, 18.1);
       this.build.tool = 'hands';
+    } else if (this.capture === 'metro') {
+      this.player.teleport(0.5, 0.02, -36.2, 0);
+      this.player.pitch = -0.08;
+      this.player.writeCamera();
+    } else if (this.capture === 'dialogue') {
+      this.player.teleport(-2.1, 0.18, 20.3, 0);
+      this.player.lookAt(-4.35, 1.2, 18.55);
+      this.dialogue.open(this.talkers[0]);
+    } else if (this.capture === 'director') {
+      this.player.teleport(0.2, 0.05, 22.4, 0);
+      this.player.pitch = -0.04;
+      this.player.writeCamera();
+      this.director.open();
     } else if (this.capture === 'journal') {
       this.player.teleport(0.2, 0.05, 22.4, 0);
       this.player.pitch = -0.04;
@@ -208,10 +255,15 @@ export class Game {
     if (this.dying) {
       this.deathT -= dt;
       if (this.deathT <= 0) this.respawn();
-    } else if (this.started && !this.paused && !this.journalOpen) {
-      this.simulate(dt);
+    } else if (this.started && !this.paused && !this.journalOpen && !this.won) {
+      if (!this.dialogue.isOpen && !this.director.isOpen) this.simulate(dt);
     }
     this.city.update(this.renderer, this.camera, dt, this.simTime);
+    this.metro.update(dt, this.simTime);
+    for (const s of this.spawned) {
+      s.puppet.play('idle');
+      s.puppet.update(dt, Math.hypot(s.anchor.position.x - this.player.x, s.anchor.position.z - this.player.z));
+    }
     this.rain.update(dt, this.player.x, this.player.z, this.player.yaw);
     this.player.updatePresentation(dt);
     this.people?.update(dt, this.player.x, this.player.z);
@@ -224,9 +276,9 @@ export class Game {
     this.hurt = Math.max(0, this.hurt - dt * 0.8);
     this.post.grade.uniforms.uTime.value = this.simTime;
     this.post.grade.uniforms.uHurt.value = this.hurt * 0.65 + (1 - this.player.health / TUNE.playerHealth) * 0.18;
-    if (!this.paused && !this.journalOpen) {
-      this.hud.setPrompt(this.started ? this.promptText() : null);
-      this.hud.setTool(this.started ? this.build.label() : '');
+    if (!this.paused && !this.journalOpen && !this.dialogue.isOpen) {
+      this.hud.setPrompt(this.started && !this.won ? this.promptText() : null);
+      this.hud.setTool(this.started && !this.won ? this.build.label() : '');
       const ghost = this.started && !this.dying ? this.placement() : null;
       this.build.updateGhost(ghost);
     }
@@ -293,6 +345,70 @@ export class Game {
     this.deathT = 1.7;
     this.hud.setDeath(true);
     this.hud.setPrompt(null);
+  }
+
+  private win(): void {
+    this.won = true;
+    this.audio.chime();
+    this.hud.setWin(true);
+    this.hud.setPrompt(null);
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+  }
+
+  private afterWin(): void {
+    this.won = false;
+    this.hud.setWin(false);
+    this.player.health = TUNE.playerHealth;
+    this.player.teleport(this.city.spawn.x, this.city.spawn.y, this.city.spawn.z, this.city.spawn.yaw);
+    this.alien.reset();
+    if (!this.capture) void this.canvas.requestPointerLock();
+  }
+
+  /** AI builder mode — a generated NPC walks out of the static, talkable. */
+  private spawnGeneratedNpc(spec: NpcSpec): void {
+    const fwd = this.player.forward();
+    const x = Math.max(-9, Math.min(9, this.player.x + fwd.x * 3.2));
+    const z = Math.max(-54, Math.min(27, this.player.z + fwd.z * 3.2));
+    const anchor = new Group();
+    const puppet = createPuppet(this.cast.civilian, 'civilian');
+    anchor.add(puppet.model);
+    anchor.position.set(x, 0, z);
+    anchor.rotation.y = this.player.yaw + Math.PI;
+    this.scene.add(anchor);
+    this.world.add({
+      id: `gen-${spec.id}`,
+      tag: 'static',
+      minX: x - 0.4,
+      maxX: x + 0.4,
+      minY: 0,
+      maxY: 1.7,
+      minZ: z - 0.4,
+      maxZ: z + 0.4,
+    });
+    this.talkers.push({ id: spec.id, name: `${spec.name} — ${spec.role}`, lines: spec.lines, x, y: 0, z });
+    this.city.hotspots.push({
+      id: `talk-${spec.id}`,
+      verb: 'Talk',
+      name: spec.name,
+      minX: x - 0.85,
+      maxX: x + 0.85,
+      minY: 0,
+      maxY: 1.9,
+      minZ: z - 0.85,
+      maxZ: z + 0.85,
+    });
+    this.spawned.push({ puppet, anchor });
+    this.audio.chime();
+    this.hud.say(`${spec.name} walked out of the static and took a breath.`);
+  }
+
+  private saveGameConcept(spec: GameConceptSpec): void {
+    this.addEntry({
+      id: `concept-${this.entries.length}-${spec.title.replace(/\W+/g, '')}`,
+      title: `Game concept — ${spec.title}`,
+      body: `${spec.genre}. Core loop: ${spec.coreLoop} Antagonist: ${spec.antagonist} Art: ${spec.artDirection} Mechanics: ${spec.mechanics.join(' / ')}`,
+    });
+    this.hud.say('Concept filed in the journal. Tab to read.');
   }
 
   private respawn(): void {
@@ -399,10 +515,47 @@ export class Game {
           'The storm drain is a time bruise. Light pools where the water should be, and it does not belong to this hour.',
         );
         break;
-      default:
+      case 'fragment-03':
+        this.takeFragment(
+          'fragment-03',
+          'act1_fragment_03',
+          'Fragment 03',
+          "Ghost's desk was streaming the precinct scanner. The signal repeats tomorrow's weather.",
+        );
         break;
+      case 'fragment-04':
+        this.takeFragment(
+          'fragment-04',
+          'act1_fragment_04',
+          'Fragment 04',
+          "The deep fragment hums at the tunnel's end. The bruise and the Heart share a pulse.",
+        );
+        break;
+      case 'metro-entrance':
+        this.hud.say('The gate is dead. The underpass exhales cold neon. Something down there is still paying the electric bill.');
+        break;
+      case 'heart-portal':
+        if (this.fragments >= 4) {
+          this.win();
+        } else {
+          const left = 4 - this.fragments;
+          this.hud.say(`The bruise is not ripe. ${left} fragment${left === 1 ? '' : 's'} short.`);
+        }
+        break;
+      default: {
+        if (spot.id.startsWith('talk-')) {
+          const talker = this.talkers.find((t) => `talk-${t.id}` === spot.id);
+          if (talker) {
+            this.audio.paper();
+            this.dialogue.open(talker);
+          }
+        }
+        break;
+      }
     }
   }
+
+  private metroOpen = false;
 
   private takeFragment(id: string, entryId: string, title: string, body: string): void {
     this.city.collectFragment(id);
@@ -411,8 +564,20 @@ export class Game {
     this.audio.chime();
     this.addEntry({ id: entryId, title, body });
     this.checkpoint = { x: this.player.x, y: this.player.y, z: this.player.z, yaw: this.player.yaw };
+    if (this.fragments === 2 && !this.metroOpen) {
+      this.metroOpen = true;
+      this.metro.open();
+      this.city.hotspots.push(...this.metro.hotspots.filter((h) => !this.city.hotspots.includes(h)));
+      this.hud.say('Two fragments. The gate at the north end lost its hum — the underpass is open.');
+      this.addEntry({
+        id: 'act1_gate_open',
+        title: 'The north gate',
+        body: 'The barrier went dark and swung. Below the boulevard, neon is still burning for nobody.',
+      });
+      return;
+    }
     this.hud.say(
-      this.fragments >= 2 ? 'Two fragments. The street still will not say where they went.' : body,
+      this.fragments >= 4 ? 'Four fragments. The Heart at the end of the underpass is beating louder.' : body,
     );
   }
 
@@ -514,11 +679,34 @@ export class Game {
         return;
       }
       if (e.code === 'Escape') {
+        if (this.director.isOpen) {
+          this.director.close();
+          this.setPaused(false);
+          if (!this.capture) void this.canvas.requestPointerLock();
+          return;
+        }
+        if (this.dialogue.isOpen) {
+          this.dialogue.close();
+          return;
+        }
         if (this.journalOpen) this.toggleJournal();
         else this.setPaused(!this.paused);
         return;
       }
-      if (this.paused || this.dying) return;
+      if (this.dying) return;
+      if (this.director.isOpen) {
+        if (e.code === 'KeyM' && !e.repeat) {
+          this.director.close();
+          this.setPaused(false);
+          if (!this.capture) void this.canvas.requestPointerLock();
+        }
+        return;
+      }
+      if (this.dialogue.isOpen) {
+        if (e.code === 'KeyE' && !e.repeat) this.dialogue.advance();
+        return;
+      }
+      if (this.paused) return;
       if (e.code === 'Tab') {
         this.toggleJournal();
         return;
@@ -531,6 +719,12 @@ export class Game {
       if (e.code === 'KeyB' && !e.repeat) this.build.cycle();
       if (e.code === 'KeyF' && !e.repeat) this.tryMelee();
       if (e.code === 'KeyN' && !e.repeat) this.player.toggleNight();
+      if (e.code === 'KeyM' && !e.repeat) {
+        this.director.open();
+        this.journalOpen = false;
+        this.hud.setJournal(this.entries, false);
+        if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+      }
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
@@ -555,7 +749,7 @@ export class Game {
     });
     document.addEventListener('pointerlockchange', () => {
       const locked = document.pointerLockElement === this.canvas;
-      if (!locked && this.started && !this.paused && !this.dying && !this.capture && !this.journalOpen) {
+      if (!locked && this.started && !this.paused && !this.dying && !this.capture && !this.journalOpen && !this.director.isOpen) {
         this.setPaused(true);
       }
     });
